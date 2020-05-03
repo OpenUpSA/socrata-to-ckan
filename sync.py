@@ -28,7 +28,7 @@ def read_index(filename):
 
 
 def make_tags(tags_string):
-    return [{"name": slugify(t.strip())} for t in tags_string.strip().split(",")]
+    return [{"name": slugify(t.strip())} for t in tags_string.strip().split(",") if t.strip()]
 
 
 def parse_date(date_string):
@@ -36,19 +36,22 @@ def parse_date(date_string):
 
 
 def dataset_fields(item):
-    return {
+    fields = {
         "name": slugify(item["Name"]),
         "title": item["Name"],
         "resources": [],
         "tags": make_tags(item["Keywords"]),
         "license_name": item["License"],
-        "private": item["Public"] == "FALSE",
+        "private": item["Public"] == "false",
         "notes": item["Description"],
-        "group_name": item["Category"],
         "maintainer": item["Owner"],
         "maintainer_email": item["Contact Email"],
         "organization_name": item["data_provided_by"],
     }
+
+    if item["Category"]:
+        fields["groups"] = [{"name": item["Category"]}]
+    return fields
 
 
 def resource_fields(item):
@@ -69,6 +72,8 @@ def socrata_to_pre_ckan(socrata):
     resource_datasets = []
 
     for item in socrata:
+        if item["Derived View"] == "true":
+            continue
         socrata_id = item["U ID"]
         if item["Parent UID"]:
             dataset_socrata_id = item["Parent UID"]
@@ -90,6 +95,7 @@ def main():
 
     ckan_organizations = ckan.action.organization_list(all_fields=True)
     ckan_licenses = ckan.action.license_list()
+    ckan_groups = ckan.action.group_list()
 
     org_name_to_id = {o["title"]: o["name"] for o in ckan_organizations}
 
