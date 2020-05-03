@@ -49,10 +49,11 @@ def dataset_fields(item):
         "maintainer": item["Owner"],
         "maintainer_email": item["Contact Email"],
         "organization_name": None,
+        "group_name": None,
     }
 
     if item["Category"]:
-        fields["groups"] = [{"name": item["Category"]}]
+        fields["group_name"] = item["Category"]
     if item["data_provided_by"]:
         fields["organization_name"] = item["data_provided_by"]
     return fields
@@ -103,13 +104,24 @@ def get_missing_orgs(ckan_organizations, pre_ckan_datasets):
     return dataset_org_names - existing_org_names
 
 
+def get_missing_groups(ckan_groups, pre_ckan_datasets):
+    existing_group_names = set()
+    for group in ckan_groups:
+        existing_group_names.add(group["title"])
+    dataset_group_names = set()
+    for dataset in pre_ckan_datasets:
+        if dataset["group_name"]:
+            dataset_group_names.add(dataset["group_name"])
+    return dataset_group_names - existing_group_names
+
+
 def main():
     args = parse_args()
     ckan = RemoteCKAN(args.ckan_url, apikey=args.apikey)
 
     ckan_organizations = ckan.action.organization_list(all_fields=True)
     ckan_licenses = ckan.action.license_list()
-    ckan_groups = ckan.action.group_list()
+    ckan_groups = ckan.action.group_list(all_fields=True)
 
     socrata_index = read_index(args.indexfile[0])
     pre_ckan_datasets = socrata_to_pre_ckan(socrata_index)
@@ -119,8 +131,12 @@ def main():
         new_org = ckan.action.organization_create(name=slugify(org_name), title=org_name)
         ckan_organizations.append(new_org)
 
-    print(new_org_names)
-    print(ckan_organizations)
+    new_group_names = get_missing_groups(ckan_groups, pre_ckan_datasets)
+    for group_name in new_group_names:
+        new_group = ckan.action.group_create(name=slugify(group_name), title=group_name)
+        ckan_groups.append(new_group)
+
+
 
 
 
