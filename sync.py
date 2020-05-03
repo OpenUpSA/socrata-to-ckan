@@ -3,6 +3,7 @@ from ckanapi import RemoteCKAN
 from csv import DictReader
 from slugify import slugify
 from pprint import pprint
+from datetime import datetime
 
 
 def parse_args():
@@ -30,6 +31,10 @@ def make_tags(tags_string):
     return [{"name": slugify(t.strip())} for t in tags_string.strip().split(",")]
 
 
+def parse_date(date_string):
+    return datetime.strptime(date_string, "%m/%d/%Y %H:%M:%S %p +0000")
+
+
 def dataset_fields(item):
     return {
         "name": slugify(item["Name"]),
@@ -45,6 +50,8 @@ def dataset_fields(item):
 def resource_fields(item):
     fields = {
         "name": item["Name"],
+        "created": parse_date(item["Creation Date"]).isoformat(),
+        "last_modified": parse_date(item["Last Update Date (data)"]).isoformat(),
     }
     if item["Parent UID"]:
         fields["description"] = item["Description"]
