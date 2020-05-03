@@ -44,6 +44,10 @@ def dataset_fields(item):
         "license_name": item["License"],
         "private": item["Public"] == "FALSE",
         "notes": item["Description"],
+        "group_name": item["Category"],
+        "maintainer": item["Owner"],
+        "maintainer_email": item["Contact Email"],
+        "organization_name": item["data_provided_by"],
     }
 
 
