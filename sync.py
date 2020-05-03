@@ -6,8 +6,18 @@ from pprint import pprint
 from datetime import datetime
 import logging
 import glob
+from contextlib import ExitStack
 
 logger = logging.getLogger(__name__)
+
+LICENCE_IDS = {
+    "Creative Commons Attribution | Share Alike 3.0 Unported": 'cc-by-sa',
+    "Creative Commons Attribution | Share Alike 4.0 International": 'cc-by-sa',
+    "Open Data Commons Attribution License": 'odc-by',
+    "Open Data Commons Public Domain Dedication and License": 'odc-pddl',
+    "Open Database License": 'odc-odbl',
+    "Public Domain": 'other-pd',
+}
 
 
 def parse_args():
@@ -46,7 +56,6 @@ def dataset_fields(item):
         "title": item["Name"],
         "resources": [],
         "tags": make_tags(item["Keywords"]),
-        "license_name": item["License"],
         "private": item["Public"] == "false",
         "notes": item["Description"],
         "maintainer": item["Owner"],
@@ -60,6 +69,8 @@ def dataset_fields(item):
         fields["group_name"] = item["Category"]
     if item["data_provided_by"]:
         fields["organization_name"] = item["data_provided_by"]
+    if item["License"] in LICENCE_IDS:
+        fields["license_id"] = LICENCE_IDS[item["License"]]
     return fields
 
 
@@ -73,6 +84,15 @@ def resource_fields(item):
     if item["Parent UID"]:
         fields["description"] = item["Description"]
     return fields
+
+
+def sync_dataset(ckan, dataset):
+    with ExitStack() as stack:
+        for resource in dataset["resources"]:
+            path = resource.pop("path")
+            fd = stack.enter_context(open(path, 'b'))
+            resource["upload"] = fd
+        ckan.action.package_create(dataset)
 
 
 def socrata_to_pre_ckan(socrata):
@@ -138,7 +158,6 @@ def main():
     ckan = RemoteCKAN(args.ckan_url, apikey=args.apikey)
 
     ckan_organizations = ckan.action.organization_list(all_fields=True)
-    ckan_licenses = ckan.action.license_list()
     ckan_groups = ckan.action.group_list(all_fields=True)
 
     socrata_index = read_index(args.indexfile[0])
