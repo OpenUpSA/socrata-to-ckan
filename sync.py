@@ -6,7 +6,7 @@ from pprint import pprint
 from datetime import datetime
 import logging
 import glob
-from contextlib import ExitStack
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def parse_date(date_string):
 
 def dataset_fields(item):
     fields = {
-        "name": slugify(item["Name"]),
+        "name": slugify(item['Name'] + "-" + item['U ID']),
         "title": item["Name"],
         "resources": [],
         "tags": make_tags(item["Keywords"]),
@@ -60,15 +60,15 @@ def dataset_fields(item):
         "notes": item["Description"],
         "maintainer": item["Owner"],
         "maintainer_email": item["Contact Email"],
-        "organization_name": None,
-        "group_name": None,
+        "organization_title": None,
+        "group_title": None,
         "url": item["source_link"],
     }
 
     if item["Category"]:
-        fields["group_name"] = item["Category"]
+        fields["group_title"] = item["Category"]
     if item["data_provided_by"]:
-        fields["organization_name"] = item["data_provided_by"]
+        fields["organization_title"] = item["data_provided_by"]
     if item["License"] in LICENCE_IDS:
         fields["license_id"] = LICENCE_IDS[item["License"]]
     return fields
@@ -84,15 +84,6 @@ def resource_fields(item):
     if item["Parent UID"]:
         fields["description"] = item["Description"]
     return fields
-
-
-def sync_dataset(ckan, dataset):
-    with ExitStack() as stack:
-        for resource in dataset["resources"]:
-            path = resource.pop("path")
-            fd = stack.enter_context(open(path, 'b'))
-            resource["upload"] = fd
-        ckan.action.package_create(dataset)
 
 
 def socrata_to_pre_ckan(socrata):
@@ -119,25 +110,25 @@ def socrata_to_pre_ckan(socrata):
 
 
 def get_missing_orgs(ckan_organizations, pre_ckan_datasets):
-    existing_org_names = set()
+    existing_org_titles = set()
     for org in ckan_organizations:
-        existing_org_names.add(org["title"])
-    dataset_org_names = set()
+        existing_org_titles.add(org["title"])
+    dataset_org_titles = set()
     for dataset in pre_ckan_datasets:
-        if dataset["organization_name"]:
-            dataset_org_names.add(dataset["organization_name"])
-    return dataset_org_names - existing_org_names
+        if dataset["organization_title"]:
+            dataset_org_titles.add(dataset["organization_title"])
+    return dataset_org_titles - existing_org_titles
 
 
 def get_missing_groups(ckan_groups, pre_ckan_datasets):
-    existing_group_names = set()
+    existing_group_titles = set()
     for group in ckan_groups:
-        existing_group_names.add(group["title"])
-    dataset_group_names = set()
+        existing_group_titles.add(group["title"])
+    dataset_group_titles = set()
     for dataset in pre_ckan_datasets:
-        if dataset["group_name"]:
-            dataset_group_names.add(dataset["group_name"])
-    return dataset_group_names - existing_group_names
+        if dataset["group_title"]:
+            dataset_group_titles.add(dataset["group_title"])
+    return dataset_group_titles - existing_group_titles
 
 
 def add_resource_paths(datasets, file_paths):
@@ -149,8 +140,42 @@ def add_resource_paths(datasets, file_paths):
                     path_resource = resource.copy()
                     del path_resource["socrata_id"]
                     path_resource["path"] = path
+                    filename = os.path.basename(path)
+                    extension = os.path.splitext(filename)[1]
+                    path_resource["format"] = extension[1:].upper()
                     path_resources.append(path_resource)
         dataset["resources"] = path_resources
+
+
+def add_group(datasets, ckan_groups):
+    group_by_title = {g["title"]: g for g in ckan_groups}
+    for dataset in datasets:
+        group_title = dataset.pop("group_title")
+        if group_title:
+            dataset["groups"] = [group_by_title[group_title]]
+
+
+def add_organization(datasets, ckan_organizations):
+    organization_by_title = {o["title"]: o for o in ckan_organizations}
+    for dataset in datasets:
+        org_title = dataset.pop("organization_title")
+        if org_title:
+            dataset["owner_org"] = organization_by_title[org_title]["id"]
+
+
+def sync_dataset(ckan, dataset):
+    resources = dataset.pop("resources")
+    print("Creating dataset:")
+    pprint(dataset)
+    dataset = ckan.action.package_create(**dataset)
+    for resource in resources:
+        path = resource.pop("path")
+        with open(path, 'rb') as fd:
+            resource["upload"] = fd
+            resource["package_id"] = dataset["id"]
+            print("Creating resource:")
+            pprint(resource)
+            ckan.action.resource_create(**resource)
 
 
 def main():
@@ -161,22 +186,26 @@ def main():
     ckan_groups = ckan.action.group_list(all_fields=True)
 
     socrata_index = read_index(args.indexfile[0])
-    pre_ckan_datasets = socrata_to_pre_ckan(socrata_index)
+    datasets = socrata_to_pre_ckan(socrata_index)
 
-    new_org_names = get_missing_orgs(ckan_organizations, pre_ckan_datasets)
-    for org_name in new_org_names:
-        new_org = ckan.action.organization_create(name=slugify(org_name), title=org_name)
+    new_org_titles = get_missing_orgs(ckan_organizations, datasets)
+    for org_title in new_org_titles:
+        new_org = ckan.action.organization_create(name=slugify(org_title), title=org_title)
         ckan_organizations.append(new_org)
 
-    new_group_names = get_missing_groups(ckan_groups, pre_ckan_datasets)
-    for group_name in new_group_names:
-        new_group = ckan.action.group_create(name=slugify(group_name), title=group_name)
+    new_group_titles = get_missing_groups(ckan_groups, datasets)
+    for group_title in new_group_titles:
+        new_group = ckan.action.group_create(name=slugify(group_title), title=group_title)
         ckan_groups.append(new_group)
 
-    file_paths = list(glob.iglob(args.filesdir[0] + "/**/*"))
-    add_resource_paths(pre_ckan_datasets, file_paths)
+    add_group(datasets, ckan_groups)
+    add_organization(datasets, ckan_organizations)
 
-    pprint(list(pre_ckan_datasets))
+    file_paths = list(glob.iglob(args.filesdir[0] + "/**/*"))
+    add_resource_paths(datasets, file_paths)
+
+    for dataset in datasets:
+        sync_dataset(ckan, dataset)
 
 
 if __name__ == "__main__":
