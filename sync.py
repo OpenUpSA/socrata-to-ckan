@@ -4,6 +4,8 @@ from csv import DictReader
 from slugify import slugify
 from pprint import pprint
 from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
 
 
 def parse_args():
@@ -113,9 +115,12 @@ def main():
     pre_ckan_datasets = socrata_to_pre_ckan(socrata_index)
 
     new_org_names = get_missing_orgs(ckan_organizations, pre_ckan_datasets)
+    for org_name in new_org_names:
+        new_org = ckan.action.organization_create(name=slugify(org_name), title=org_name)
+        ckan_organizations.append(new_org)
 
     print(new_org_names)
-
+    print(ckan_organizations)
 
 
 
