@@ -5,6 +5,8 @@ from slugify import slugify
 from pprint import pprint
 from datetime import datetime
 import logging
+import glob
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,6 +21,7 @@ def parse_args():
         "--ckan-url", required=True, help="e.g. https://data.openup.org.za"
     )
     parser.add_argument('indexfile', nargs=1)
+    parser.add_argument('filesdir', nargs=1)
     return parser.parse_args()
 
 
@@ -50,6 +53,7 @@ def dataset_fields(item):
         "maintainer_email": item["Contact Email"],
         "organization_name": None,
         "group_name": None,
+        "url": item["source_link"],
     }
 
     if item["Category"]:
@@ -64,6 +68,7 @@ def resource_fields(item):
         "name": item["Name"],
         "created": parse_date(item["Creation Date"]).isoformat(),
         "last_modified": parse_date(item["Last Update Date (data)"]).isoformat(),
+        "socrata_id": item["U ID"],
     }
     if item["Parent UID"]:
         fields["description"] = item["Description"]
@@ -115,6 +120,19 @@ def get_missing_groups(ckan_groups, pre_ckan_datasets):
     return dataset_group_names - existing_group_names
 
 
+def add_resource_paths(datasets, file_paths):
+    for dataset in datasets:
+        path_resources = []
+        for resource in dataset["resources"]:
+            for path in file_paths:
+                if resource["socrata_id"] in path:
+                    path_resource = resource.copy()
+                    del path_resource["socrata_id"]
+                    path_resource["path"] = path
+                    path_resources.append(path_resource)
+        dataset["resources"] = path_resources
+
+
 def main():
     args = parse_args()
     ckan = RemoteCKAN(args.ckan_url, apikey=args.apikey)
@@ -136,8 +154,10 @@ def main():
         new_group = ckan.action.group_create(name=slugify(group_name), title=group_name)
         ckan_groups.append(new_group)
 
+    file_paths = list(glob.iglob(args.filesdir[0] + "/**/*"))
+    add_resource_paths(pre_ckan_datasets, file_paths)
 
-
+    pprint(list(pre_ckan_datasets))
 
 
 if __name__ == "__main__":
