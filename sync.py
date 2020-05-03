@@ -1,5 +1,5 @@
 import argparse
-from ckanapi import RemoteCKAN
+from ckanapi import RemoteCKAN, ValidationError
 from csv import DictReader
 from slugify import slugify
 from pprint import pprint
@@ -167,15 +167,21 @@ def sync_dataset(ckan, dataset):
     resources = dataset.pop("resources")
     print("Creating dataset:")
     pprint(dataset)
-    dataset = ckan.action.package_create(**dataset)
-    for resource in resources:
-        path = resource.pop("path")
-        with open(path, 'rb') as fd:
-            resource["upload"] = fd
-            resource["package_id"] = dataset["id"]
-            print("Creating resource:")
-            pprint(resource)
-            ckan.action.resource_create(**resource)
+    try:
+        dataset = ckan.action.package_create(**dataset)
+        for resource in resources:
+            path = resource.pop("path")
+            with open(path, 'rb') as fd:
+                resource["upload"] = fd
+                resource["package_id"] = dataset["id"]
+                print("Creating resource:")
+                pprint(resource)
+                ckan.action.resource_create(**resource)
+    except ValidationError as e:
+        if u'That URL is already in use.' in e.error_dict.get(u'name', []):
+            print("Dataset already exists")
+        else:
+            raise e
 
 
 def main():
