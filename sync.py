@@ -26,21 +26,32 @@ def read_index(filename):
             yield row
 
 
-def dataset_fields(socrata_item):
+def make_tags(tags_string):
+    return [{"name": slugify(t.strip())} for t in tags_string.strip().split(",")]
+
+
+def dataset_fields(item):
     return {
-        "name": slugify(socrata_item["Name"]),
-        "title": socrata_item["Name"],
+        "name": slugify(item["Name"]),
+        "title": item["Name"],
         "resources": [],
+        "tags": make_tags(item["Keywords"]),
+        "license_name": item["License"],
+        "private": item["Public"] == "FALSE",
+        "notes": item["Description"],
     }
 
 
-def resource_fields(socrata_item):
-    return {
-        "name": socrata_item["Name"],
+def resource_fields(item):
+    fields = {
+        "name": item["Name"],
     }
+    if item["Parent UID"]:
+        fields["description"] = item["Description"]
+    return fields
 
 
-def socrata_to_ckan(socrata):
+def socrata_to_pre_ckan(socrata):
     datasets = dict()
     organizations = dict()
     resources = dict()
@@ -67,14 +78,16 @@ def main():
     ckan = RemoteCKAN(args.ckan_url, apikey=args.apikey)
 
     ckan_organizations = ckan.action.organization_list(all_fields=True)
+    ckan_licenses = ckan.action.license_list()
+
     org_name_to_id = {o["title"]: o["name"] for o in ckan_organizations}
 
     socrata_index = read_index(args.indexfile[0])
-    organizations, datasets = socrata_to_ckan(socrata_index)
+    organizations, datasets = socrata_to_pre_ckan(socrata_index)
 
     for item in datasets.items():
-        if len(item[1]["resources"]) > 1:
-            pprint(item)
+        pprint(item)
+
 
 
 if __name__ == "__main__":
