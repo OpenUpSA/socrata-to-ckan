@@ -6,7 +6,6 @@ from pprint import pprint
 from datetime import datetime
 import logging
 import glob
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,7 @@ def dataset_fields(item):
     if item["Category"]:
         fields["group_title"] = item["Category"]
     if item["data_provided_by"]:
-        fields["organization_title"] = item["data_provided_by"]
+        fields["author"] = item["data_provided_by"]
     if item["License"] in LICENCE_IDS:
         fields["license_id"] = LICENCE_IDS[item["License"]]
     return fields
@@ -109,17 +108,6 @@ def socrata_to_pre_ckan(socrata):
     return datasets.values()
 
 
-def get_missing_orgs(ckan_organizations, pre_ckan_datasets):
-    existing_org_titles = set()
-    for org in ckan_organizations:
-        existing_org_titles.add(org["title"])
-    dataset_org_titles = set()
-    for dataset in pre_ckan_datasets:
-        if dataset["organization_title"]:
-            dataset_org_titles.add(dataset["organization_title"])
-    return dataset_org_titles - existing_org_titles
-
-
 def get_missing_groups(ckan_groups, pre_ckan_datasets):
     existing_group_titles = set()
     for group in ckan_groups:
@@ -140,9 +128,12 @@ def add_resource_paths(datasets, file_paths):
                     path_resource = resource.copy()
                     del path_resource["socrata_id"]
                     path_resource["path"] = path
-                    filename = os.path.basename(path)
-                    extension = os.path.splitext(filename)[1]
-                    path_resource["format"] = extension[1:].upper()
+                    if path.endswith("geojson"):
+                        path_resource["mimetype"] = "application/json"
+                    elif path.endswith("kml"):
+                        path_resource["mimetype"] = "application/vnd.google-earth.kml+xml"
+                    elif path.endswith("kml"):
+                        path_resource["mimetype"] = "application/vnd.google-earth.kmz"
                     path_resources.append(path_resource)
         dataset["resources"] = path_resources
 
@@ -158,9 +149,7 @@ def add_group(datasets, ckan_groups):
 def add_organization(datasets, ckan_organizations):
     organization_by_title = {o["title"]: o for o in ckan_organizations}
     for dataset in datasets:
-        org_title = dataset.pop("organization_title")
-        if org_title:
-            dataset["owner_org"] = organization_by_title[org_title]["id"]
+        dataset["owner_org"] = organization_by_title["OpenUp"]["id"]
 
 
 def sync_dataset(ckan, dataset):
@@ -193,11 +182,6 @@ def main():
 
     socrata_index = read_index(args.indexfile[0])
     datasets = socrata_to_pre_ckan(socrata_index)
-
-    new_org_titles = get_missing_orgs(ckan_organizations, datasets)
-    for org_title in new_org_titles:
-        new_org = ckan.action.organization_create(name=slugify(org_title), title=org_title)
-        ckan_organizations.append(new_org)
 
     new_group_titles = get_missing_groups(ckan_groups, datasets)
     for group_title in new_group_titles:
